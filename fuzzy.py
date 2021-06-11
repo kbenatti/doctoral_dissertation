@@ -86,7 +86,7 @@ def centroides(X, U, m):
         P[i] = aux1/aux2
     return P
 
-def fuzzy_capacity_constraints(X,Z,clusters,salvaguardas=0,P=None):
+def fuzzy_capacity_constraints(X,Z,clusters,salvaguardas=2,P=None):
     n_samples, dim = X.shape
     
     #Escolha m>1 (tipicamente m=2)
@@ -125,7 +125,7 @@ def fuzzy_capacity_constraints(X,Z,clusters,salvaguardas=0,P=None):
         U_old = copy.deepcopy(U[:])
         U = def_U(alpha, beta, Z, D)
         
-        if salvaguardas and (np.array(U).min()<0):
+        if salvaguardas==1 and (np.array(U).min()<0):
             outside = [[(i,j) for j in range(n_samples) if U[i][j]<0] for i in range(clusters)]
             for i in range(clusters):
                 for tuples in outside[i]:
@@ -134,6 +134,36 @@ def fuzzy_capacity_constraints(X,Z,clusters,salvaguardas=0,P=None):
             beta, alpha = beta_alpha(A,b,D,Z)
             U_old = copy.deepcopy(U[:])
             U = def_U(alpha, beta, Z, D)
+        elif salvaguardas==2 and (np.array(U).min()<0):
+            #Definição d_{ij}
+            D = np.array(distancias(X,P))
+            g, n = D.shape
+            D = np.diag(D.reshape(g*n))
+
+            A1 = np.array([[Z if i==t else np.zeros(n,) for i in range(g)] for t in range(g)]).reshape(g,n*g)
+
+            A2 = np.zeros((n,g*n))
+            for j in range(n):
+                for i in range(g):
+                    A2[j,n*i+j] = 1
+
+            A = np.concatenate((A1,A2), axis=0)
+            del A1, A2
+
+            mu = Z.sum()/clusters*np.ones((clusters,))
+            b = np.concatenate((mu,np.ones(n)))
+
+            G = np.concatenate((-np.eye(n*g),np.eye(n*g)))
+            h = np.concatenate((np.zeros((n*g,)),np.ones((n*g,))))
+
+            u = cp.Variable(n*g)
+            prob = cp.Problem(cp.Minimize((1/2)*cp.quad_form(u, D)),
+                              [G @ u <= h,
+                              A @ u == b])
+            prob.solve()
+
+            U_old = copy.deepcopy(U)
+            U = u.value.reshape(g,n)
 
         P = centroides(X, U, m)
 
